@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Snippet } from "@/types";
 import { Button } from "@/components/ui/button";
-import { Copy, Check, X, Edit2, Plus } from "lucide-react";
+import { Copy, Check, X, Edit2, Plus, Trash2, Pin, PinOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -12,17 +12,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { createSupabaseClient } from "@/utils/supabase/client";
+import { useAuth } from "@clerk/nextjs";
 
 interface SnippetBoxProps {
   snippet: Snippet;
-  onUpdate?: (id: number, updates: Partial<Snippet>) => Promise<void>;
+  onUpdate?: (id: string | number, updates: Partial<Snippet>) => Promise<void>;
+  onDelete?: (id: string | number) => void;
+  refreshSnippets?: () => void;
 }
 
-function SnippetBox({ snippet, onUpdate }: SnippetBoxProps) {
+function SnippetBox({ snippet, onUpdate, onDelete, refreshSnippets }: SnippetBoxProps) {
+  const { getToken } = useAuth();
+  
   const [copied, setCopied] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isPinning, setIsPinning] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [editData, setEditData] = useState({
     title: snippet.title,
@@ -86,8 +105,81 @@ function SnippetBox({ snippet, onUpdate }: SnippetBoxProps) {
       setIsEditing(false);
     } catch (err) {
       console.error("Failed to save:", err);
+      alert("Failed to save snippet");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      setIsDeleting(true);
+      
+      const token = await getToken({ template: "supabase" });
+      if (!token) throw new Error("Not authenticated");
+
+      const supabase = createSupabaseClient(token);
+
+      const { error } = await supabase
+        .from("snippets")
+        .delete()
+        .eq("id", snippet.id);
+
+      if (error) throw error;
+
+      // Close modal and dialog
+      setShowDeleteDialog(false);
+      setIsModalOpen(false);
+
+      // Notify parent component
+      if (onDelete) {
+        onDelete(snippet.id);
+      }
+      
+      // Refresh snippets list
+      if (refreshSnippets) {
+        refreshSnippets();
+      }
+    } catch (err) {
+      console.error("Failed to delete:", err);
+      alert(err instanceof Error ? err.message : "Failed to delete snippet");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleTogglePin = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    try {
+      setIsPinning(true);
+      
+      const token = await getToken({ template: "supabase" });
+      if (!token) throw new Error("Not authenticated");
+
+      const supabase = createSupabaseClient(token);
+
+      const { error } = await supabase
+        .from("snippets")
+        .update({ is_pinned: !snippet.is_pinned })
+        .eq("id", snippet.id);
+
+      if (error) throw error;
+
+      // Update via parent callback if available
+      if (onUpdate) {
+        await onUpdate(snippet.id, { is_pinned: !snippet.is_pinned });
+      }
+      
+      // Refresh snippets list
+      if (refreshSnippets) {
+        refreshSnippets();
+      }
+    } catch (err) {
+      console.error("Failed to toggle pin:", err);
+      alert("Failed to update pin status");
+    } finally {
+      setIsPinning(false);
     }
   };
 
@@ -96,31 +188,56 @@ function SnippetBox({ snippet, onUpdate }: SnippetBoxProps) {
       {/* Snippet Card */}
       <div
         onClick={handleOpenModal}
-        className="bg-white rounded-md shadow-md border border-gray-200 hover:shadow-lg transition-shadow overflow-hidden cursor-pointer"
+        className={`bg-white rounded-md shadow-md border transition-all overflow-hidden cursor-pointer ${
+          snippet.is_pinned 
+            ? 'border-blue-400 ring-2 ring-blue-100 hover:shadow-xl' 
+            : 'border-gray-200 hover:shadow-lg'
+        }`}
       >
         {/* Header */}
         <div className="flex justify-between items-center px-3 py-2 border-b border-gray-200">
-          <h3 className="font-semibold text-base text-gray-800 truncate">
-            {snippet.title}
-          </h3>
-          <Button
-            onClick={handleCopy}
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs"
-          >
-            {copied ? (
-              <>
-                <Check className="h-3 w-3 mr-1" />
-                Copied
-              </>
-            ) : (
-              <>
-                <Copy className="h-3 w-3 mr-1" />
-                Copy
-              </>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {snippet.is_pinned && (
+              <Pin className="h-3.5 w-3.5 text-blue-600 fill-blue-600 flex-shrink-0" />
             )}
-          </Button>
+            <h3 className="font-semibold text-base text-gray-800 truncate">
+              {snippet.title}
+            </h3>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              onClick={handleTogglePin}
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={isPinning}
+              title={snippet.is_pinned ? "Unpin snippet" : "Pin snippet"}
+            >
+              {snippet.is_pinned ? (
+                <PinOff className="h-3 w-3" />
+              ) : (
+                <Pin className="h-3 w-3" />
+              )}
+            </Button>
+            <Button
+              onClick={handleCopy}
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+            >
+              {copied ? (
+                <>
+                  <Check className="h-3 w-3 mr-1" />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3 w-3 mr-1" />
+                  Copy
+                </>
+              )}
+            </Button>
+          </div>
         </div>
 
         {/* Code Content with Fade Effect */}
@@ -272,9 +389,14 @@ function SnippetBox({ snippet, onUpdate }: SnippetBoxProps) {
                   </div>
                 ) : (
                   <>
-                    <h2 className="text-xl font-bold text-gray-800 break-words">
-                      {snippet.title}
-                    </h2>
+                    <div className="flex items-start gap-2">
+                      {snippet.is_pinned && (
+                        <Pin className="h-4 w-4 text-blue-600 fill-blue-600 mt-1 flex-shrink-0" />
+                      )}
+                      <h2 className="text-xl font-bold text-gray-800 break-words">
+                        {snippet.title}
+                      </h2>
+                    </div>
                     {snippet.description && (
                       <p className="text-sm text-gray-600 mt-2">
                         {snippet.description}
@@ -325,6 +447,20 @@ function SnippetBox({ snippet, onUpdate }: SnippetBoxProps) {
                 ) : (
                   <>
                     <Button
+                      onClick={handleTogglePin}
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={isPinning}
+                      title={snippet.is_pinned ? "Unpin snippet" : "Pin snippet"}
+                    >
+                      {snippet.is_pinned ? (
+                        <PinOff className="h-3 w-3" />
+                      ) : (
+                        <Pin className="h-3 w-3" />
+                      )}
+                    </Button>
+                    <Button
                       onClick={handleCopy}
                       variant="ghost"
                       size="sm"
@@ -353,6 +489,18 @@ function SnippetBox({ snippet, onUpdate }: SnippetBoxProps) {
                         Edit
                       </Button>
                     )}
+                    <Button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowDeleteDialog(true);
+                      }}
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      Delete
+                    </Button>
                   </>
                 )}
                 <Button
@@ -379,7 +527,7 @@ function SnippetBox({ snippet, onUpdate }: SnippetBoxProps) {
                 />
               ) : (
                 <pre className="bg-gray-50 p-4 rounded-lg">
-                  <code className="text-gray-800 font-mono text-sm whitespace-pre-wrap break-words leading-relaxed">
+                  <code className="text-gray-800 font-mono text-sm whitespace-pre-wrap wrap-break-word leading-relaxed">
                     {snippet.content}
                   </code>
                 </pre>
@@ -388,6 +536,28 @@ function SnippetBox({ snippet, onUpdate }: SnippetBoxProps) {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Snippet?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{snippet.title}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
