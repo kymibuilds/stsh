@@ -1,10 +1,3 @@
-import React, { useState } from "react";
-import { Snippet } from "@/types";
-import { Button } from "@/components/ui/button";
-import { Copy, Check, X, Edit2, Plus, Trash2, Pin, PinOff } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -21,19 +14,21 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { createSupabaseClient } from "@/utils/supabase/client";
-import { useAuth } from "@clerk/nextjs";
+} from "@/components/ui/alert-dialog";import React, { useState } from "react";
+import { Snippet } from "@/types";
+import { Button } from "@/components/ui/button";
+import { Copy, Check, X, Edit2, Plus, Trash2, Pin, PinOff } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 
 interface SnippetBoxProps {
   snippet: Snippet;
   onUpdate?: (id: string | number, updates: Partial<Snippet>) => Promise<void>;
-  onDelete?: (id: string | number) => void;
-  refreshSnippets?: () => void;
+  onDelete?: (id: string | number) => Promise<void>;
 }
 
-function SnippetBox({ snippet, onUpdate, onDelete, refreshSnippets }: SnippetBoxProps) {
-  const { getToken } = useAuth();
+function SnippetBox({ snippet, onUpdate, onDelete }: SnippetBoxProps) {
   
   const [copied, setCopied] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -114,31 +109,14 @@ function SnippetBox({ snippet, onUpdate, onDelete, refreshSnippets }: SnippetBox
   const handleDelete = async () => {
     try {
       setIsDeleting(true);
-      
-      const token = await getToken({ template: "supabase" });
-      if (!token) throw new Error("Not authenticated");
-
-      const supabase = createSupabaseClient(token);
-
-      const { error } = await supabase
-        .from("snippets")
-        .delete()
-        .eq("id", snippet.id);
-
-      if (error) throw error;
 
       // Close modal and dialog
       setShowDeleteDialog(false);
       setIsModalOpen(false);
 
-      // Notify parent component
+      // Call parent delete handler (which updates Supabase)
       if (onDelete) {
-        onDelete(snippet.id);
-      }
-      
-      // Refresh snippets list
-      if (refreshSnippets) {
-        refreshSnippets();
+        await onDelete(snippet.id);
       }
     } catch (err) {
       console.error("Failed to delete:", err);
@@ -153,27 +131,10 @@ function SnippetBox({ snippet, onUpdate, onDelete, refreshSnippets }: SnippetBox
     
     try {
       setIsPinning(true);
-      
-      const token = await getToken({ template: "supabase" });
-      if (!token) throw new Error("Not authenticated");
 
-      const supabase = createSupabaseClient(token);
-
-      const { error } = await supabase
-        .from("snippets")
-        .update({ is_pinned: !snippet.is_pinned })
-        .eq("id", snippet.id);
-
-      if (error) throw error;
-
-      // Update via parent callback if available
+      // Update via parent callback
       if (onUpdate) {
         await onUpdate(snippet.id, { is_pinned: !snippet.is_pinned });
-      }
-      
-      // Refresh snippets list
-      if (refreshSnippets) {
-        refreshSnippets();
       }
     } catch (err) {
       console.error("Failed to toggle pin:", err);
@@ -527,7 +488,7 @@ function SnippetBox({ snippet, onUpdate, onDelete, refreshSnippets }: SnippetBox
                 />
               ) : (
                 <pre className="bg-gray-50 p-4 rounded-lg">
-                  <code className="text-gray-800 font-mono text-sm whitespace-pre-wrap wrap-break-word leading-relaxed">
+                  <code className="text-gray-800 font-mono text-sm whitespace-pre-wrap break-words leading-relaxed">
                     {snippet.content}
                   </code>
                 </pre>

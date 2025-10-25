@@ -1,51 +1,15 @@
 "use client";
 
-import { createSupabaseClient } from "@/utils/supabase/client";
-import { useAuth } from "@clerk/nextjs";
-import React, { useEffect, useState } from "react";
+import React from "react";
+import { useSnippetsStore } from "@/store/snippetsStore";
 import Item from "./item";
 
 function ItemList() {
-  const { getToken } = useAuth();
+  const snippets = useSnippetsStore((state) => state.snippets);
+  const isLoading = useSnippetsStore((state) => state.isLoading);
+  const error = useSnippetsStore((state) => state.error);
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [snippets, setSnippets] = useState<any[]>([]);
-
-  useEffect(() => {
-    fetchItems();
-  }, []);
-
-  const fetchItems = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const token = await getToken({ template: "supabase" });
-      if (!token) throw new Error("Not authenticated");
-
-      const supabase = createSupabaseClient(token);
-
-      // Fetch all snippet titles
-      const { data, error } = await supabase
-        .from("snippets")
-        .select("id, title")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      setSnippets(data || []);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "An unexpected error occurred"
-      );
-      console.error("Error fetching snippets:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
+  if (isLoading) {
     return <div className="p-4 text-gray-500">Loading snippets...</div>;
   }
 

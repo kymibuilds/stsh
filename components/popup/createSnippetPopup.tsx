@@ -32,16 +32,12 @@ import { Check, ChevronsUpDown, Plus, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createSupabaseClient } from "@/utils/supabase/client";
 import { useAuth, useUser } from "@clerk/nextjs";
+import { useSnippetsStore } from "@/store/snippetsStore";
 
-interface CreateSnippetPopupProps {
-  refreshSnippets?: () => void;
-}
-
-const CreateSnippetPopup: React.FC<CreateSnippetPopupProps> = ({
-  refreshSnippets,
-}) => {
+const CreateSnippetPopup: React.FC = () => {
   const { getToken } = useAuth();
   const { user } = useUser();
+  const { addSnippet } = useSnippetsStore();
 
   const [open, setOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
@@ -50,22 +46,8 @@ const CreateSnippetPopup: React.FC<CreateSnippetPopupProps> = ({
   const [isLoading, setIsLoading] = useState(false);
 
   const languages = [
-    "JavaScript",
-    "TypeScript",
-    "Python",
-    "C++",
-    "C#",
-    "Go",
-    "Rust",
-    "HTML",
-    "CSS",
-    "SQL",
-    "PHP",
-    "Swift",
-    "Kotlin",
-    "Ruby",
-    "Shell",
-    "Java",
+    "JavaScript", "TypeScript", "Python", "C++", "C#", "Go", "Rust",
+    "HTML", "CSS", "SQL", "PHP", "Swift", "Kotlin", "Ruby", "Shell", "Java",
   ];
 
   const handleChange = (
@@ -84,27 +66,33 @@ const CreateSnippetPopup: React.FC<CreateSnippetPopupProps> = ({
     try {
       setIsLoading(true);
 
-      // Get Supabase token from Clerk
       const token = await getToken({ template: "supabase" });
       if (!token) throw new Error("Not authenticated");
 
       const supabase = createSupabaseClient(token);
 
-      // Insert snippet
-      const { error } = await supabase.from("snippets").insert({
+      const newSnippet = {
         title: formData.name,
         content: formData.code,
         language: selectedLanguage,
         user_id: user?.id,
         created_at: new Date().toISOString(),
-      });
+        is_pinned: false,
+        description: "",
+        tags: [],
+      };
+
+      const { data, error } = await supabase
+        .from("snippets")
+        .insert(newSnippet)
+        .select()
+        .single();
 
       if (error) throw error;
 
-      // Refresh parent snippets
-      refreshSnippets?.();
+      // Add to Zustand store for instant visibility
+      if (data) addSnippet(data);
 
-      // Reset form
       setOpen(false);
       setFormData({ name: "", code: "" });
       setSelectedLanguage("");
@@ -116,7 +104,7 @@ const CreateSnippetPopup: React.FC<CreateSnippetPopupProps> = ({
     }
   };
 
-  const lineCount = formData.code.split('\n').length;
+  const lineCount = formData.code.split("\n").length;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -139,9 +127,7 @@ const CreateSnippetPopup: React.FC<CreateSnippetPopupProps> = ({
 
         <div className="flex-1 overflow-y-auto px-6">
           <div className="grid gap-5 pb-4">
-            {/* Name and Language Row */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Name */}
               <div className="grid gap-2">
                 <Label htmlFor="name" className="text-sm font-medium">
                   Snippet Name <span className="text-red-500">*</span>
@@ -155,8 +141,6 @@ const CreateSnippetPopup: React.FC<CreateSnippetPopupProps> = ({
                   className="focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-
-              {/* Language */}
               <div className="grid gap-2">
                 <Label className="text-sm font-medium">
                   Language <span className="text-red-500">*</span>
@@ -209,7 +193,6 @@ const CreateSnippetPopup: React.FC<CreateSnippetPopupProps> = ({
               </div>
             </div>
 
-            {/* Code */}
             <div className="grid gap-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="code" className="text-sm font-medium">
@@ -217,24 +200,22 @@ const CreateSnippetPopup: React.FC<CreateSnippetPopupProps> = ({
                 </Label>
                 {formData.code && (
                   <span className="text-xs text-muted-foreground">
-                    {lineCount} {lineCount === 1 ? 'line' : 'lines'}
+                    {lineCount} {lineCount === 1 ? "line" : "lines"}
                   </span>
                 )}
               </div>
-              <div className="relative">
-                <Textarea
-                  id="code"
-                  name="code"
-                  placeholder="Paste your code here..."
-                  className="font-mono text-sm resize-none focus:ring-2 focus:ring-blue-500 min-h-[300px] max-h-[400px]"
-                  value={formData.code}
-                  onChange={handleChange}
-                  style={{
-                    scrollbarWidth: 'thin',
-                    scrollbarColor: '#cbd5e1 #f1f5f9'
-                  }}
-                />
-              </div>
+              <Textarea
+                id="code"
+                name="code"
+                placeholder="Paste your code here..."
+                className="font-mono text-sm resize-none focus:ring-2 focus:ring-blue-500 min-h-[300px] max-h-[400px]"
+                value={formData.code}
+                onChange={handleChange}
+                style={{
+                  scrollbarWidth: "thin",
+                  scrollbarColor: "#cbd5e1 #f1f5f9",
+                }}
+              />
               <p className="text-xs text-muted-foreground">
                 Tip: Use Ctrl+V (Cmd+V on Mac) to paste code with formatting preserved
               </p>
@@ -245,19 +226,13 @@ const CreateSnippetPopup: React.FC<CreateSnippetPopupProps> = ({
         <DialogFooter className="px-6 py-4 border-t bg-gray-50/50">
           <div className="flex gap-3 w-full sm:w-auto">
             <DialogClose asChild>
-              <Button 
-                type="button" 
-                variant="outline" 
-                disabled={isLoading}
-                className="flex-1 sm:flex-initial"
-              >
+              <Button type="button" variant="outline" disabled={isLoading}>
                 Cancel
               </Button>
             </DialogClose>
-            <Button 
-              onClick={createSnippet} 
+            <Button
+              onClick={createSnippet}
               disabled={isLoading || !formData.name || !formData.code || !selectedLanguage}
-              className="flex-1 sm:flex-initial"
             >
               {isLoading ? "Creating..." : "Create Snippet"}
             </Button>
