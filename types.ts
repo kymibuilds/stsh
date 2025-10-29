@@ -10,4 +10,5 @@ export type Snippet = {
   created_at: string;
   updated_at: string;
   is_pinned: boolean;
+  author_name: string;
 };

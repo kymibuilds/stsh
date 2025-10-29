@@ -1,315 +1,418 @@
 "use client";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+
+import { useEffect, useState, useMemo } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useSupabase } from "@/hooks/useSupabase";
+import { useUser } from "@clerk/nextjs";
+import { toast } from "sonner";
+import ReactCodeMirror from "@uiw/react-codemirror";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Search,
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
   ArrowLeft,
-  Plus,
   MoreVertical,
-  Code2,
-  Calendar,
-  Eye,
   Edit,
   Trash2,
-  Share2,
+  Calendar,
+  Code2,
+  Eye,
   Copy,
+  Save,
+  X,
+  Globe,
+  Lock,
 } from "lucide-react";
-import React, { useState } from "react";
 
-function FolderIdPage() {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState("recent");
+export default function FolderIdPage() {
+  const { folderId } = useParams() as { folderId?: string };
+  const router = useRouter();
+  const supabase = useSupabase();
+  const { user } = useUser();
 
-  // Mock folder data
-  const folder = {
-    id: 1,
-    name: "React Components",
-    description: "Reusable React components and custom hooks",
-    color: "bg-blue-500",
-    colorKey: "blue",
-    createdAt: "2 weeks ago",
+  const [folder, setFolder] = useState<any | null>(null);
+  const [snippets, setSnippets] = useState<any[]>([]);
+  const [selected, setSelected] = useState<any | null>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedCode, setEditedCode] = useState("");
+  const [isPublic, setIsPublic] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!folderId) return;
+    const fetch = async () => {
+      setLoading(true);
+      try {
+        const { data: folderData, error: folderErr } = await supabase
+          .from("folders")
+          .select("*")
+          .eq("id", folderId)
+          .single();
+        if (folderErr) throw folderErr;
+        setFolder(folderData);
+
+        const { data: jf, error: jfErr } = await supabase
+          .from("snippet_folders")
+          .select("snippet_id")
+          .eq("folder_id", folderId);
+        if (jfErr) throw jfErr;
+        const ids = (jf || []).map((r: any) => r.snippet_id);
+
+        if (ids.length === 0) {
+          setSnippets([]);
+          setLoading(false);
+          return;
+        }
+
+        const { data: snippetsData, error: snErr } = await supabase
+          .from("snippets")
+          .select("*")
+          .in("id", ids)
+          .order("created_at", { ascending: false });
+        if (snErr) throw snErr;
+        setSnippets(snippetsData || []);
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message || "Failed to load folder");
+        toast.error("Failed to load folder");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetch();
+  }, [folderId, supabase]);
+
+  useEffect(() => {
+    if (selected) {
+      setEditedCode(selected.code);
+      setIsPublic(selected.is_public || false);
+      setIsEditing(false);
+    }
+  }, [selected]);
+
+  async function handleRename() {
+    if (!folderId || !newName.trim()) return;
+    const { error } = await supabase
+      .from("folders")
+      .update({ name: newName })
+      .eq("id", folderId);
+    if (error) {
+      toast.error("Failed to rename folder");
+      return;
+    }
+    toast.success("Folder renamed");
+    setFolder((f: any) => ({ ...f, name: newName }));
+    setRenameDialogOpen(false);
+  }
+
+  async function handleDelete() {
+    if (!folderId) return;
+    const { error } = await supabase.from("folders").delete().eq("id", folderId);
+    if (error) {
+      toast.error("Failed to delete folder");
+      return;
+    }
+    toast.success("Folder deleted");
+    router.push("/space");
+  }
+
+  const handleCopy = async (text: string) => {
+    try {
+      if (navigator?.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      toast.success("Code copied!");
+    } catch {
+      toast.error("Failed to copy code");
+    }
   };
 
-  const colorMap = {
-    blue: "rgba(59, 130, 246, 0.15)",
-  };
+  async function handleSave() {
+    if (!selected) return;
+    setIsSaving(true);
+    try {
+      const { error } = await supabase
+        .from("snippets")
+        .update({
+          code: editedCode,
+          is_public: isPublic,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", selected.id);
 
-  // Mock snippets in this folder
-  const mockSnippets = [
-    {
-      id: 1,
-      title: "useLocalStorage Hook",
-      description:
-        "Custom hook for managing localStorage with React state synchronization",
-      language: "JavaScript",
-      lastModified: "2 days ago",
-      views: 234,
-      lines: 45,
-    },
-    {
-      id: 2,
-      title: "Modal Component",
-      description:
-        "Accessible modal dialog with backdrop and keyboard navigation",
-      language: "TypeScript",
-      lastModified: "5 days ago",
-      views: 412,
-      lines: 78,
-    },
-    {
-      id: 3,
-      title: "useDebounce Hook",
-      description: "Debounce hook for optimizing search inputs and API calls",
-      language: "JavaScript",
-      lastModified: "1 week ago",
-      views: 567,
-      lines: 23,
-    },
-    {
-      id: 4,
-      title: "Dropdown Menu",
-      description:
-        "Customizable dropdown with keyboard navigation and positioning logic",
-      language: "TypeScript",
-      lastModified: "1 week ago",
-      views: 189,
-      lines: 92,
-    },
-    {
-      id: 5,
-      title: "useIntersectionObserver",
-      description:
-        "Hook for detecting element visibility with lazy loading support",
-      language: "JavaScript",
-      lastModified: "3 days ago",
-      views: 321,
-      lines: 34,
-    },
-    {
-      id: 6,
-      title: "Toast Notification",
-      description:
-        "Lightweight toast component with auto-dismiss and positioning",
-      language: "TypeScript",
-      lastModified: "4 days ago",
-      views: 445,
-      lines: 67,
-    },
-  ];
+      if (error) throw error;
+
+      setSnippets((prev) =>
+        prev.map((s) =>
+          s.id === selected.id
+            ? { ...s, code: editedCode, is_public: isPublic }
+            : s
+        )
+      );
+
+      setSelected({ ...selected, code: editedCode, is_public: isPublic });
+      setIsEditing(false);
+      toast.success("Snippet updated");
+    } catch {
+      toast.error("Failed to update snippet");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handlePublicToggle(checked: boolean) {
+    if (!selected) return;
+    setIsPublic(checked);
+    try {
+      const { error } = await supabase
+        .from("snippets")
+        .update({ is_public: checked })
+        .eq("id", selected.id);
+      if (error) throw error;
+      toast.success(checked ? "Public" : "Private");
+    } catch {
+      setIsPublic(!checked);
+      toast.error("Failed to update visibility");
+    }
+  }
+
+  if (loading)
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        Loading...
+      </div>
+    );
+
+  if (error)
+    return <div className="text-center py-16 text-red-500">Error: {error}</div>;
 
   return (
-    <div className="min-h-screen w-full">
-      <div className="container mx-auto p-4 max-w-6xl">
-        {/* Back Button */}
-        <Button variant="ghost" size="sm" className="mb-4">
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Folders
-        </Button>
+    <div className="min-h-screen w-full p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
+          <h1 className="text-2xl font-semibold">{folder?.name}</h1>
+        </div>
 
-        {/* Folder Header */}
-        <div className="rounded-lg p-6 mb-6 relative overflow-hidden">
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <div
-                  className={`w-12 h-12 ${folder.color} bg-opacity-10 rounded-lg flex items-center justify-center`}
-                >
-                  <Code2
-                    className={`w-6 h-6 ${folder.color.replace(
-                      "bg-",
-                      "text-"
-                    )}`}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreVertical className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Folder Options</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setRenameDialogOpen(true)}>
+              <Edit className="w-4 h-4 mr-2" /> Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setDeleteDialogOpen(true)}>
+              <Trash2 className="w-4 h-4 mr-2" /> Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* Rename Dialog */}
+      <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Folder</DialogTitle>
+          </DialogHeader>
+          <Input
+            placeholder="Enter new name"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+          <DialogFooter>
+            <Button onClick={handleRename}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this folder?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action is permanent. Snippets remain, but folder will be gone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Snippets List */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {snippets.map((s) => (
+          <div
+            key={s.id}
+            className="border rounded-lg p-4 flex flex-col hover:bg-accent/30 transition"
+          >
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="font-semibold">{s.title}</h3>
+                  {s.is_public && <Globe className="w-3 h-3 text-green-600" />}
+                </div>
+                <p className="text-sm opacity-70 line-clamp-2">
+                  {s.description}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 text-xs opacity-70 mb-3">
+              <Calendar className="w-3 h-3" />
+              <span>{new Date(s.created_at).toLocaleDateString()}</span>
+            </div>
+
+            <div className="flex justify-between items-center border-t pt-3 mt-auto">
+              <Badge variant="secondary" className="text-xs">
+                <Code2 className="w-3 h-3 mr-1" />
+                {s.language}
+              </Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs h-8"
+                onClick={() => setSelected(s)}
+              >
+                <Eye className="w-4 h-4 mr-1" /> View
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Snippet Modal */}
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          {selected && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{selected.title}</DialogTitle>
+              </DialogHeader>
+              <div className="text-sm opacity-70 mb-2">
+                {selected.description}
+              </div>
+
+              <div className="flex items-center justify-between mb-3">
+                <Badge variant="secondary" className="text-sm">
+                  <Code2 className="w-3 h-3 mr-1" />
+                  {selected.language}
+                </Badge>
+                <div className="flex items-center gap-2">
+                  {isPublic ? (
+                    <Globe className="w-4 h-4 text-green-600" />
+                  ) : (
+                    <Lock className="w-4 h-4 text-gray-600" />
+                  )}
+                  <Label className="text-sm">
+                    {isPublic ? "Public" : "Private"}
+                  </Label>
+                  <Switch
+                    checked={isPublic}
+                    onCheckedChange={handlePublicToggle}
                   />
                 </div>
-                <div>
-                  <h1 className="text-2xl font-semibold">{folder.name}</h1>
-                  <p className="text-sm opacity-70">{folder.description}</p>
-                </div>
               </div>
-              <div className="flex items-center gap-4 text-sm opacity-70 mt-3">
-                <span>{mockSnippets.length} snippets</span>
-                <span>•</span>
-                <span>Created {folder.createdAt}</span>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Snippet
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <MoreVertical className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem>
-                    <Edit className="w-4 h-4 mr-2" />
-                    Edit Folder
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <Share2 className="w-4 h-4 mr-2" />
-                    Share Folder
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <Copy className="w-4 h-4 mr-2" />
-                    Duplicate
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="text-red-600">
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Delete Folder
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        </div>
 
-        {/* Search and Sort */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-6">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 opacity-50" />
-            <Input
-              placeholder="Search snippets in this folder..."
-              className="pl-10"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                Sort:{" "}
-                {sortBy === "recent"
-                  ? "Recent"
-                  : sortBy === "name"
-                  ? "Name"
-                  : "Most Viewed"}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setSortBy("recent")}>
-                Most Recent
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSortBy("name")}>
-                Name (A-Z)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSortBy("views")}>
-                Most Viewed
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+              <ReactCodeMirror
+                value={isEditing ? editedCode : selected.code}
+                height="500px"
+                theme="dark"
+                editable={isEditing}
+                onChange={(val) => setEditedCode(val)}
+              />
 
-        {/* Snippets Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {mockSnippets.map((snippet) => (
-            <div
-              key={snippet.id}
-              className="border rounded-lg p-4 hover:border-opacity-100 transition-all cursor-pointer group flex flex-col h-full"
-              onClick={() => {}}
-            >
-              {/* Content Section */}
-              <div className="flex-1 flex flex-col">
-                {/* Header */}
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1">
-                    <h3 className="font-semibold mb-1">{snippet.title}</h3>
-                    <p className="text-sm opacity-70 line-clamp-2">
-                      {snippet.description}
-                    </p>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      asChild
-                      onClick={(e) => e.stopPropagation()}
+              <div className="flex gap-3 mt-4">
+                {!isEditing ? (
+                  <>
+                    <Button onClick={() => handleCopy(selected.code)}>
+                      <Copy className="w-4 h-4 mr-2" />
+                      Copy
+                    </Button>
+                    <Button variant="outline" onClick={() => setIsEditing(true)}>
+                      <Edit className="w-4 h-4 mr-2" />
+                      Edit
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button onClick={handleSave} disabled={isSaving}>
+                      <Save className="w-4 h-4 mr-2" />
+                      {isSaving ? "Saving..." : "Save"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsEditing(false)}
+                      disabled={isSaving}
                     >
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem>
-                        <Edit className="w-4 h-4 mr-2" />
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Copy className="w-4 h-4 mr-2" />
-                        Duplicate
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Share2 className="w-4 h-4 mr-2" />
-                        Share
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>Move to Folder</DropdownMenuItem>
-                      <DropdownMenuItem className="text-red-600">
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-
-                {/* Meta Info */}
-                <div className="flex items-center gap-3 text-xs opacity-70 mb-3">
-                  <div className="flex items-center gap-1">
-                    <Eye className="w-3 h-3" />
-                    <span>{snippet.views}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Code2 className="w-3 h-3" />
-                    <span>{snippet.lines} lines</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Calendar className="w-3 h-3" />
-                    <span>{snippet.lastModified}</span>
-                  </div>
-                </div>
+                      <X className="w-4 h-4 mr-2" />
+                      Cancel
+                    </Button>
+                  </>
+                )}
               </div>
-
-              {/* Footer */}
-              <div className="flex items-center justify-between pt-3 border-t mt-auto">
-                <Badge variant="secondary" className="text-xs">
-                  <Code2 className="w-3 h-3 mr-1" />
-                  {snippet.language}
-                </Badge>
-                <Button variant="ghost" size="sm" className="text-xs h-8">
-                  View Code
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Empty State */}
-        {mockSnippets.length === 0 && (
-          <div className="text-center py-16 border rounded-lg">
-            <Code2 className="w-12 h-12 mx-auto mb-4 opacity-30" />
-            <h3 className="text-lg font-semibold mb-2">No snippets yet</h3>
-            <p className="text-sm opacity-70 mb-4">
-              Start adding snippets to this folder
-            </p>
-            <Button>
-              <Plus className="w-4 h-4 mr-2" />
-              Add First Snippet
-            </Button>
-          </div>
-        )}
-      </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
-export default FolderIdPage;
