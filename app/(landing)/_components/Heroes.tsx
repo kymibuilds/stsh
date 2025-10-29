@@ -3,6 +3,7 @@ import { JetBrains_Mono } from "next/font/google";
 import { RainbowButton } from "@/components/ui/rainbow-button";
 import { ArrowRight } from "lucide-react";
 import React from "react";
+import { SignInButton } from "@clerk/nextjs";
 
 const jetbrains = JetBrains_Mono({
   subsets: ["latin"],
@@ -21,13 +22,15 @@ function Heroes() {
           Save, organize, and access your favorite pieces of code effortlessly.
         </p>
         <div className="h-5" />
-        <RainbowButton
-          variant="outline"
-          className="flex items-center justify-center gap-1"
-          size="lg"
-        >
-          Get Started <ArrowRight />
-        </RainbowButton>
+        <SignInButton>
+          <RainbowButton
+            variant="outline"
+            className="flex items-center justify-center gap-1"
+            size="lg"
+          >
+            Get Started <ArrowRight />
+          </RainbowButton>
+        </SignInButton>
       </div>
 
       {/* Right: Code Block */}
