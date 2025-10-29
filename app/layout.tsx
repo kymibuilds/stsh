@@ -4,6 +4,7 @@ import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import { ThemeProvider as NextThemesProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
+import {Analytics} from "@vercel/analytics/next"
 
 const montserrat = Montserrat({
   variable: "--font-montserrat",
@@ -34,6 +35,7 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             {children}
+            <Analytics />
             <Toaster richColors position="top-right" />
           </NextThemesProvider>
         </body>
