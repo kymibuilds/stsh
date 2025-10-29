@@ -22,9 +22,7 @@ function Navbar() {
         <Button variant={"ghost"} size={"sm"}>
           Features
         </Button>
-        <Button variant={"ghost"} size={"sm"}>
-          Pricing
-        </Button>
+        =
         <SignedIn>
           <Button size={"sm"} onClick={() => router.push("/space")}>
             Let's Go
