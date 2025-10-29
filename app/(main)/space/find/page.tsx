@@ -15,18 +15,57 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Search,
-  Code2,
-  User,
-  Eye,
-  Calendar,
-  ArrowUpDown,
-  SlidersHorizontal,
-} from "lucide-react";
+import { Search, Code2, User, Calendar, ArrowUpDown, Copy, X, Check } from "lucide-react";
 import React, { useEffect, useState, useMemo } from "react";
 import { useSupabase } from "@/hooks/useSupabase";
 import { Snippet } from "@/types";
+import CodeMirror from "@uiw/react-codemirror";
+import { vscodeDark } from "@uiw/codemirror-theme-vscode";
+
+function CopyButton({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      if (window.isSecureContext && navigator.clipboard) {
+        await navigator.clipboard.writeText(code);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = code;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Copy failed", err);
+    }
+  };
+
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      className="text-xs"
+      onClick={handleCopy}
+    >
+      {copied ? (
+        <>
+          <Check className="w-3 h-3 mr-1" /> Copied!
+        </>
+      ) : (
+        <>
+          <Copy className="w-3 h-3 mr-1" /> Copy Code
+        </>
+      )}
+    </Button>
+  );
+}
 
 function FindPage() {
   const [snippets, setSnippets] = useState<Snippet[]>([]);
@@ -35,10 +74,11 @@ function FindPage() {
   const [sortBy, setSortBy] = useState("recent");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [openSnippet, setOpenSnippet] = useState<Snippet | null>(null);
+  const [animateClose, setAnimateClose] = useState(false);
 
   const supabase = useSupabase();
 
-  // Fetch public snippets
   const fetchPublicSnippets = async () => {
     setLoading(true);
     try {
@@ -47,7 +87,6 @@ function FindPage() {
         .select("*")
         .eq("is_public", true)
         .order("created_at", { ascending: false });
-
       if (error) throw error;
       setSnippets(data || []);
     } catch (err: any) {
@@ -61,11 +100,9 @@ function FindPage() {
     fetchPublicSnippets();
   }, []);
 
-  // Filtering + sorting
   const filteredSnippets = useMemo(() => {
     let list = [...snippets];
-    if (language !== "all")
-      list = list.filter((s) => s.language === language);
+    if (language !== "all") list = list.filter((s) => s.language === language);
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -104,7 +141,6 @@ function FindPage() {
   return (
     <div className="min-h-screen w-full">
       <div className="container mx-auto p-4 max-w-6xl">
-        {/* Header */}
         <div className="mb-6">
           <h1 className="text-2xl font-semibold mb-2">Discover Snippets</h1>
           <p className="text-sm opacity-70">
@@ -112,7 +148,6 @@ function FindPage() {
           </p>
         </div>
 
-        {/* Search + Filters */}
         <div className="space-y-3 mb-6">
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
@@ -146,36 +181,34 @@ function FindPage() {
             </Select>
           </div>
 
-          {/* Sort & Filters */}
           <div className="flex items-center justify-between">
-            <p className="text-sm opacity-70">{filteredSnippets.length} snippets found</p>
-            <div className="flex gap-2">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <ArrowUpDown className="w-4 h-4 mr-2" />
-                    Sort:{" "}
-                    {sortBy === "recent"
-                      ? "Recent"
-                      : sortBy === "oldest"
-                      ? "Oldest"
-                      : "Popular"}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setSortBy("recent")}>
-                    Most Recent
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortBy("oldest")}>
-                    Oldest
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+            <p className="text-sm opacity-70">
+              {filteredSnippets.length} snippets found
+            </p>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <ArrowUpDown className="w-4 h-4 mr-2" />
+                  Sort:{" "}
+                  {sortBy === "recent"
+                    ? "Recent"
+                    : sortBy === "oldest"
+                    ? "Oldest"
+                    : "Popular"}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setSortBy("recent")}>
+                  Most Recent
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSortBy("oldest")}>
+                  Oldest
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
-        {/* Snippets Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {filteredSnippets.map((snippet) => (
             <div
@@ -209,7 +242,16 @@ function FindPage() {
                   <Code2 className="w-3 h-3 mr-1" />
                   {snippet.language}
                 </Badge>
-                <Button variant="ghost" size="sm" className="text-xs h-8">
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs h-8"
+                  onClick={() => {
+                    setAnimateClose(false);
+                    setOpenSnippet(snippet);
+                  }}
+                >
                   View Code
                 </Button>
               </div>
@@ -227,6 +269,61 @@ function FindPage() {
           </div>
         )}
       </div>
+
+      {/* Custom Inline Dialog */}
+      {openSnippet && (
+        <div
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-200 ${
+            animateClose ? "opacity-0" : "opacity-100"
+          }`}
+          onClick={() => {
+            setAnimateClose(true);
+            setTimeout(() => setOpenSnippet(null), 200);
+          }}
+        >
+          <div
+            className={`relative w-full max-w-3xl bg-zinc-950 border border-zinc-800 rounded-xl shadow-xl p-6 text-sm text-gray-100 transform transition-all duration-200 ${
+              animateClose ? "scale-95 opacity-0" : "scale-100 opacity-100"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => {
+                setAnimateClose(true);
+                setTimeout(() => setOpenSnippet(null), 200);
+              }}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-200 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h2 className="text-lg font-semibold mb-2">{openSnippet.title}</h2>
+            <div className="flex items-center gap-2 text-xs text-gray-400 mb-4">
+              <Badge variant="secondary">{openSnippet.language}</Badge>
+              <span>{openSnippet.author_name || "Anonymous"}</span>
+              <span>• {new Date(openSnippet.created_at).toLocaleDateString()}</span>
+            </div>
+
+            {openSnippet.description && (
+              <p className="text-sm text-gray-400 mb-4">{openSnippet.description}</p>
+            )}
+
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-gray-500 font-medium">Code</span>
+              <CopyButton code={openSnippet.code} />
+            </div>
+
+            <CodeMirror
+              value={openSnippet.code}
+              height="400px"
+              theme={vscodeDark}
+              extensions={[]}
+              editable={false}
+              className="rounded-md border border-gray-700"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

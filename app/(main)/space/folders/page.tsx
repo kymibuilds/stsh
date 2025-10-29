@@ -53,6 +53,24 @@ type FolderItem = {
   snippetCount?: number;
 };
 
+const folderColors = [
+  "text-blue-500 bg-blue-500/10",
+  "text-green-500 bg-green-500/10",
+  "text-purple-500 bg-purple-500/10",
+  "text-orange-500 bg-orange-500/10",
+  "text-pink-500 bg-pink-500/10",
+  "text-cyan-500 bg-cyan-500/10",
+  "text-yellow-500 bg-yellow-500/10",
+  "text-red-500 bg-red-500/10",
+];
+
+const getColorForFolder = (id: string | number) => {
+  const index = typeof id === 'string' 
+    ? id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) 
+    : id;
+  return folderColors[Number(index) % folderColors.length];
+};
+
 export default function FolderPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [folders, setFolders] = useState<FolderItem[]>([]);
@@ -120,6 +138,23 @@ export default function FolderPage() {
     }
   };
 
+  const handleDeleteFolder = async (folderId: string | number) => {
+    try {
+      const { error } = await supabase
+        .from("folders")
+        .delete()
+        .eq("id", folderId);
+      
+      if (error) throw error;
+
+      setFolders((prev) => prev.filter((f) => f.id !== folderId));
+      toast.success("Folder deleted");
+    } catch (err) {
+      toast.error("Failed to delete folder");
+      console.error(err);
+    }
+  };
+
   const visibleFolders = folders.filter((f) =>
     `${f.name} ${f.description || ""}`
       .toLowerCase()
@@ -159,19 +194,20 @@ export default function FolderPage() {
           {visibleFolders.map((folder) => (
             <div
               key={folder.id}
-              className="border rounded-lg p-4 hover:bg-muted transition cursor-pointer group"
-              onClick={() => router.push(`/space/folders/${folder.id}`)}
+              className="border rounded-lg p-4 transition-all group bg-card"
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 flex items-center justify-center rounded-md bg-muted">
-                    <Folder className="w-5 h-5 text-muted-foreground" />
+                  <div className={`w-10 h-10 flex items-center justify-center rounded-lg ${getColorForFolder(folder.id)}`}>
+                    <Folder className="w-5 h-5" />
                   </div>
-                  <div>
-                    <h3 className="font-medium">{folder.name}</h3>
-                    <p className="text-sm text-muted-foreground line-clamp-2">
-                      {folder.description}
-                    </p>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-base">{folder.name}</h3>
+                    {folder.description && (
+                      <p className="text-sm text-muted-foreground truncate mt-0.5">
+                        {folder.description}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -183,24 +219,37 @@ export default function FolderPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition"
+                      className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <MoreVertical className="w-4 h-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem>Rename</DropdownMenuItem>
-                    <DropdownMenuItem>Delete</DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteFolder(folder.id);
+                      }}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      Delete
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
 
               <div className="flex items-center justify-between pt-3 border-t">
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <FileText className="w-3 h-3" />
+                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <FileText className="w-4 h-4" />
                   <span>{folder.snippetCount ?? 0} snippets</span>
                 </div>
-                <Button size="sm" variant="ghost" className="text-xs px-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-sm h-8 px-3"
+                  onClick={() => router.push(`/space/folders/${folder.id}`)}
+                >
                   View
                 </Button>
               </div>
@@ -210,15 +259,17 @@ export default function FolderPage() {
 
         {/* Empty State */}
         {visibleFolders.length === 0 && !loading && (
-          <div className="text-center py-16">
-            <Folder className="w-12 h-12 mx-auto mb-4 opacity-30" />
-            <h3 className="text-lg font-semibold mb-2">No folders</h3>
-            <p className="text-sm opacity-70 mb-4">
-              Create your first folder to organize snippets
+          <div className="text-center py-20">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
+              <Folder className="w-8 h-8 text-primary/50" />
+            </div>
+            <h3 className="text-xl font-semibold mb-2">No folders yet</h3>
+            <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
+              Create your first folder to organize your snippets and keep everything tidy
             </p>
-            <Button onClick={() => setModalOpen(true)}>
+            <Button onClick={() => setModalOpen(true)} size="lg">
               <Plus className="w-4 h-4 mr-2" />
-              Create Folder
+              Create Your First Folder
             </Button>
           </div>
         )}
@@ -226,21 +277,27 @@ export default function FolderPage() {
 
       {/* Create Folder Modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)}>
-        <h3 className="text-lg font-semibold mb-2">Create Folder</h3>
-        <p className="text-sm opacity-70 mb-4">Add a name and description.</p>
-        <div className="grid gap-3">
-          <Input
-            placeholder="Folder name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <Input
-            placeholder="Description (optional)"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
+        <h3 className="text-xl font-semibold mb-1">Create New Folder</h3>
+        <p className="text-sm text-muted-foreground mb-6">Add a name and optional description.</p>
+        <div className="grid gap-4">
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">Folder Name</label>
+            <Input
+              placeholder="e.g., React Components"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">Description (optional)</label>
+            <Input
+              placeholder="Brief description of folder contents"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
         </div>
-        <div className="flex justify-end gap-3 mt-4">
+        <div className="flex justify-end gap-3 mt-6">
           <Button
             variant="outline"
             onClick={() => setModalOpen(false)}
